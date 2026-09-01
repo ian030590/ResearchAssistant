@@ -1,0 +1,495 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "96e54a97-8d4d-47ec-87fd-77089f08dfd6",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -128,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.zotero.org/users/19129160/items",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sort",
+              "value": "dateModified"
+            },
+            {
+              "name": "direction",
+              "value": "desc"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Zotero-API-Key",
+              "value": "xBfRFTRpfIeeLTPYstwzLMHK"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "97eb94eb-32ee-4145-a08c-6b8e812b53b6",
+      "name": "HTTP Request (Zotero)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        64,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 取得所有輸入的項目\nconst allItems = items;\n\n// 過濾邏輯\nconst filteredItems = allItems.filter(item => {\n  const data = item.json.data;\n\n  // 1. 先排除「附件」和「筆記」類型，我們只要主條目 (如 journalArticle)\n  // 因為附件會跟著主條目一起被抓下來，我們不想重複處理\n  if (data.itemType === 'attachment' || data.itemType === 'note') {\n    return false;\n  }\n\n  // 2. 檢查是否有 Tags\n  const tags = data.tags || [];\n  \n  // 3. 檢查是否有 \"Analyzed\" 標籤\n  // some() 會檢查陣列中是否「至少有一個」符合條件\n  const isAnalyzed = tags.some(t => t.tag === 'Analyzed');\n\n  // 4. 如果「已經分析過 (isAnalyzed 為 true)」，我們就回傳 false (不要這個項目)\n  // 反之則保留\n  return !isAnalyzed;\n});\n\nreturn filteredItems;"
+      },
+      "id": "e092cb1e-f10f-4683-9153-d5d1cd9a9d8b",
+      "name": "Code (Filter Tags)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "2d359860-2916-4c36-b009-f2952bd58f28",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        480,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.zotero.org/users/19129160/items/' + $json.key + '/children' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Zotero-API-Key",
+              "value": "xBfRFTRpfIeeLTPYstwzLMHK"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "161ce69c-b41b-433f-8a7c-2cc20e7f0905",
+      "name": "HTTP Get Children",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        736,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 取得這篇文章的所有子項目\nconst children = items.map(item => item.json);\n\n// 找到 PDF 類型的附件\nconst pdfAttachment = children.find(child => \n  child.data.contentType === 'application/pdf' && \n  child.data.filename\n);\n\nif (pdfAttachment) {\n  // 狀況 A: 找到 PDF -> hasPdf = true\n  return [{\n    json: {\n      hasPdf: true, // 給下一個 If 節點判斷用\n      parentKey: pdfAttachment.data.parentItem,\n      attachmentKey: pdfAttachment.key,\n      filename: pdfAttachment.data.filename,\n      title: pdfAttachment.data.title\n    }\n  }];\n} else {\n  // 狀況 B: 沒找到 PDF -> hasPdf = false\n  // 關鍵：即使沒東西，也要回傳一個 dummy 物件，讓流程能繼續往下走\n  return [{\n    json: {\n      hasPdf: false,\n      title: \"No PDF Found\"\n    }\n  }];\n}"
+      },
+      "id": "f68ed28b-d1dd-41f7-927a-18914e59b74d",
+      "name": "Code (Get PDF Name)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://ewebdav.pcloud.com/0_PersonalLibrary/zotero/' + $json.attachmentKey + '.zip' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": 10000
+        }
+      },
+      "id": "912dafb0-de99-44e8-bf35-6c96814f41d4",
+      "name": "HTTP Request (pCloud DL)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1392,
+        -80
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "yfU1rsVQz1UWkj1W",
+          "name": "pcloud-webdav"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "75ef942b-0c00-4b70-b3b0-3d240ead90d3",
+      "name": "Compression1",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "AIzaSyBGlvU44qKOL1EXkNq9AZMGBToD5I3Tgv0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "options": {}
+      },
+      "id": "f5f47030-132c-4b6b-ac31-1ea228d19355",
+      "name": "HTTP Request (Gemini Fixed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1984,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 取得 Binary 資料的 Key (通常是 data 或 file_xxx)\nconst binaryKeys = Object.keys(items[0].binary);\nconst pdfKey = binaryKeys[0];\n\n// ★ 關鍵修正：強制讀取檔案 Buffer 並轉為 Base64 字串\n// 參數 0 代表「目前這批資料的第 0 筆」(因為我們有 SplitInBatches，所以永遠是 0)\nconst buffer = await this.helpers.getBinaryDataBuffer(0, pdfKey);\nconst pdfBase64 = buffer.toString('base64');\n\n// 準備 Prompt (提示詞)\nconst promptText = `你是一位專業的研究助理。請分析附件文獻，直接產出筆記內容。\n\n**筆記結構要求：**\n1. 每個段落標題請務必使用 **第一層標題 (#)** (例如：# 實驗目的)。\n2. **絕對不要** 輸出 YAML Frontmatter (--- ... ---)。\n3. **絕對不要** 使用 Markdown 代碼區塊 (不要包在 \\`\\`\\`markdown ... \\`\\`\\` 裡面)。\n4. 請跳過所有開場白，直接開始寫內容。\n\n**內容大綱：**\n# 實驗目的\n(簡述研究問題或假設)\n\n# 實驗方法\n(說明設計、參與者、工具)\n\n# 實驗結果\n(關鍵發現與數據)\n\n# 重要概念與貢獻\n(核心理論或實質貢獻)`;\n\n// 建構 Request Body\nconst requestBody = {\n  contents: [\n    {\n      parts: [\n        {\n          text: promptText\n        },\n        {\n          inline_data: {\n            mime_type: \"application/pdf\",\n            data: pdfBase64 // 這裡現在是真正的 Base64 編碼了\n          }\n        }\n      ]\n    }\n  ]\n};\n\n// 輸出\nreturn [\n  {\n    json: {\n      requestBody: requestBody,\n      fileName: items[0].binary[pdfKey].fileName\n    }\n  }\n];"
+      },
+      "id": "fb6b4acd-fc60-4f77-ab56-6ddbf40b59f0",
+      "name": "Code (Standardize PDF)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        -80
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 取得 Gemini 產生的 Markdown 內容\nconst candidate = items[0].json.candidates?.[0];\nlet mdContent = candidate?.content?.parts?.[0]?.text || \"\";\n\n// 2. 清洗 Gemini 的輸出 (移除可能殘留的 code block 或 yaml)\n// 移除開頭的 ```markdown 或 ```\nmdContent = mdContent.replace(/^```[a-z]*\\n/i, \"\");\n// 移除結尾的 ```\nmdContent = mdContent.replace(/```$/i, \"\");\n// 如果 AI 還是不聽話寫了 --- 開頭，把它去掉\nmdContent = mdContent.replace(/^---\\n[\\s\\S]*?\\n---\\n/, \"\");\n// 移除前後多餘空白\nmdContent = mdContent.trim();\n\n\n// 3. 抓取 Zotero 原始資料 (從 Split In Batches 節點)\nconst zoteroData = $node[\"Split In Batches\"].json.data;\n\n// --- [開始] 準備 YAML 資料 ---\n\n// [A] 作者處理 (將 array 轉為字串: \"Smith, J., Doe, A.\")\nlet authors = \"Unknown\";\nif (zoteroData.creators && zoteroData.creators.length > 0) {\n  authors = zoteroData.creators\n    .map(c => `${c.lastName}${c.firstName ? ', ' + c.firstName : ''}`)\n    .join(\"; \"); // Obsidian tags 用分號隔開比較安全，或用逗號\n}\n\n// [B] 來源網址\nconst sourceUrl = zoteroData.url || \"\";\n\n// [C] 年份\nlet year = \"\";\nif (zoteroData.date) {\n  const yearMatch = zoteroData.date.toString().match(/\\d{4}/);\n  if (yearMatch) year = yearMatch[0];\n}\n\n// [D] 期刊\nconst journal = zoteroData.publicationTitle || \"\";\n\n// [E] 組裝 YAML Frontmatter\nconst yamlFrontmatter = `---\ntags:\n  - Analyzed\n  - Literature\nauthor: \"${authors}\"\nyear: ${year}\njournal: \"${journal}\"\nsource: \"${sourceUrl}\"\ncreated: ${new Date().toISOString().split('T')[0]}\n---\n\n`; // 注意這裡保留一個換行\n\n// --- [結束] YAML 資料 ---\n\n\n// 4. 準備檔名 (沿用您之前的邏輯)\nlet metaParts = [];\nif (journal) metaParts.push(journal.trim());\nif (year) metaParts.push(year);\nif (zoteroData.volume) metaParts.push(\"V\" + zoteroData.volume.trim());\nif (zoteroData.pages) metaParts.push(\"pp\" + zoteroData.pages.trim());\n\nconst metaString = metaParts.join(\" \");\nconst title = (zoteroData.title || \"Untitled\").trim();\nlet finalName = metaString ? `${metaString}_${title}` : title;\nfinalName = finalName.replace(/[\\\\/:*?\"<>|]/g, \"\") + \".md\";\n\n\n// 5. 組合最終內容：YAML + Gemini 筆記\nconst finalContent = yamlFrontmatter + mdContent;\n\n\n// 6. 輸出資料\nconst binaryData = Buffer.from(finalContent, 'utf8');\n\nreturn [{\n  json: {\n    fileName: finalName,\n    uploadPath: \"1_RehabVisionResearch/Atlas Literature/\" + finalName\n  },\n  binary: {\n    data: {\n      data: binaryData.toString('base64'),\n      mimeType: 'text/markdown',\n      fileName: finalName\n    }\n  }\n}];"
+      },
+      "id": "c006b831-9ce9-4678-8d54-bae81ae64b79",
+      "name": "Code (Create MD)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://ewebdav.pcloud.com/1_RehabVisionResearch/Atlas%20Literature/' + $json.fileName }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "0a131d28-7fe1-4bbc-9783-c35ceb3998e7",
+      "name": "HTTP Request (Upload MD)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2432,
+        -80
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "yfU1rsVQz1UWkj1W",
+          "name": "pcloud-webdav"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 從 Loop 節點抓取最原始的 Zotero 資料\nconst zoteroItem = $node[\"Split In Batches\"].json;\n\n// 2. 取得目前的標籤陣列\nconst currentTags = zoteroItem.data.tags || [];\n\n// 3. 檢查並新增 \"Analyzed\" 標籤\nconst hasTag = currentTags.some(t => t.tag === 'Analyzed');\nlet newTags = currentTags;\n\nif (!hasTag) {\n  newTags = [...currentTags, { tag: 'Analyzed' }];\n}\n\n// 4. ★ 關鍵修正：輸出時包含 version 號碼\nreturn [{\n  json: {\n    itemKey: zoteroItem.key,\n    tags: newTags,\n    version: zoteroItem.version // 或是 zoteroItem.data.version，Zotero 兩處通常都有，這裡抓最外層的\n  }\n}];"
+      },
+      "id": "b0b2e8c9-cbe9-4073-a64e-eb3fbb9b80c5",
+      "name": "Code (Prepare Tags)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.zotero.org/users/19129160/items/' + $json.itemKey }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Zotero-API-Key",
+              "value": "xBfRFTRpfIeeLTPYstwzLMHK"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"tags\": $json.tags, \"version\": $json.version } }}",
+        "options": {}
+      },
+      "id": "ab90152e-d03c-4d54-8145-fe5e4d7398ef",
+      "name": "HTTP Request (Update Tag)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2896,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3f31b73f-9836-4aaa-9480-9eba3912aab5",
+              "leftValue": "={{ $json.hasPdf }}",
+              "rightValue": "={{ true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1168,
+        -80
+      ],
+      "id": "ea969456-d35c-4393-ba99-459fa9ba8f05",
+      "name": "If"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Zotero)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Zotero)": {
+      "main": [
+        [
+          {
+            "node": "Code (Filter Tags)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Filter Tags)": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [],
+        [
+          {
+            "node": "HTTP Get Children",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Get Children": {
+      "main": [
+        [
+          {
+            "node": "Code (Get PDF Name)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Get PDF Name)": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (pCloud DL)": {
+      "main": [
+        [
+          {
+            "node": "Compression1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compression1": {
+      "main": [
+        [
+          {
+            "node": "Code (Standardize PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Gemini Fixed)": {
+      "main": [
+        [
+          {
+            "node": "Code (Create MD)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Standardize PDF)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Gemini Fixed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Create MD)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Upload MD)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Upload MD)": {
+      "main": [
+        [
+          {
+            "node": "Code (Prepare Tags)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Prepare Tags)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Update Tag)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Update Tag)": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (pCloud DL)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7a8c96ecf837474cb8f11b495b811ad9da6f73680d5db9aa4c641d25d3cf3486"
+  }
+}
